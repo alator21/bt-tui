@@ -7,6 +7,7 @@ import { Footer } from "./components/Footer";
 import { ScanView } from "./components/ScanView";
 import { PairedDevicesView } from "./components/PairedDevicesView";
 import { DeviceDetailView } from "./components/DeviceDetailView";
+import { SettingsView } from "./components/SettingsView";
 import { menuOptions } from "./data/menuOptions";
 import type { AppStatus, BluetoothStatus, BluetoothDevice, Screen } from "./types";
 import {
@@ -20,6 +21,10 @@ import {
   getDeviceInfo,
   getPairedDevices,
   trustDevice,
+  setDiscoverable,
+  setPairable,
+  checkDiscoverable,
+  checkPairable,
 } from "./services/bluetooth";
 
 function App() {
@@ -37,12 +42,18 @@ function App() {
   const [selectedDevice, setSelectedDevice] = useState<BluetoothDevice | null>(null);
   const [scanAbortController, setScanAbortController] = useState<AbortController | null>(null);
   const [previousScreen, setPreviousScreen] = useState<Screen>("main");
-  const scanDuration = 10000; // 10 seconds
 
   // Paired devices state
   const [pairedDevices, setPairedDevices] = useState<BluetoothDevice[]>([]);
   const [selectedPairedIndex, setSelectedPairedIndex] = useState(0);
   const [isLoadingPaired, setIsLoadingPaired] = useState(false);
+
+  // Settings state
+  const [scanDuration, setScanDuration] = useState(10000); // milliseconds
+  const [autoTrustOnPair, setAutoTrustOnPair] = useState(false);
+  const [isDiscoverable, setIsDiscoverable] = useState(false);
+  const [isPairable, setIsPairable] = useState(false);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
   // Check Bluetooth status on mount
   useEffect(() => {
@@ -189,6 +200,44 @@ function App() {
     );
   };
 
+  const handleOpenSettings = async () => {
+    setCurrentScreen("settings");
+    setIsLoadingSettings(true);
+    setErrorMessage(null);
+
+    // Load current settings
+    const discoverableResult = await checkDiscoverable();
+    const pairableResult = await checkPairable();
+
+    discoverableResult.match(
+      (value) => setIsDiscoverable(value),
+      (error) => setErrorMessage(`Could not check discoverable: ${error.message}`)
+    );
+
+    pairableResult.match(
+      (value) => setIsPairable(value),
+      (error) => setErrorMessage(`Could not check pairable: ${error.message}`)
+    );
+
+    setIsLoadingSettings(false);
+  };
+
+  const handleToggleDiscoverable = async () => {
+    const result = await setDiscoverable(!isDiscoverable);
+    result.match(
+      () => setIsDiscoverable(!isDiscoverable),
+      (error) => setErrorMessage(error.message)
+    );
+  };
+
+  const handleTogglePairable = async () => {
+    const result = await setPairable(!isPairable);
+    result.match(
+      () => setIsPairable(!isPairable),
+      (error) => setErrorMessage(error.message)
+    );
+  };
+
   const handleBackToMain = () => {
     setCurrentScreen("main");
     setSelectedIndex(0);
@@ -263,6 +312,19 @@ function App() {
 
     result.match(
       async () => {
+        // If pairing and auto-trust is enabled, trust the device
+        if (action === "pair" && autoTrustOnPair) {
+          const trustResult = await trustDevice(selectedDevice.address);
+          trustResult.match(
+            () => {
+              // Trust succeeded, continue to refresh
+            },
+            (error) => {
+              setErrorMessage(`Paired but trust failed: ${error.message}`);
+            }
+          );
+        }
+
         // Refresh device info after action
         const freshInfo = await getDeviceInfo(selectedDevice.address);
         freshInfo.match(
@@ -322,6 +384,8 @@ function App() {
           handleScan();
         } else if (selected?.value === "list") {
           handleListPaired();
+        } else if (selected?.value === "settings") {
+          handleOpenSettings();
         }
       }
     }
@@ -387,6 +451,26 @@ function App() {
       }
     }
 
+    // Settings screen actions
+    if (currentScreen === "settings") {
+      if (key.name === "1") {
+        handleToggleDiscoverable();
+      } else if (key.name === "2") {
+        handleTogglePairable();
+      } else if (key.name === "3") {
+        // Cycle through scan durations
+        const durations = [5000, 10000, 20000, 30000];
+        const currentIndex = durations.indexOf(scanDuration);
+        const nextIndex = (currentIndex + 1) % durations.length;
+        const newDuration = durations[nextIndex];
+        if (newDuration !== undefined) {
+          setScanDuration(newDuration);
+        }
+      } else if (key.name === "4") {
+        setAutoTrustOnPair(!autoTrustOnPair);
+      }
+    }
+
     // Device detail screen actions
     if (currentScreen === "deviceDetail" && selectedDevice) {
       if (key.name === "c" && !selectedDevice.connected) {
@@ -423,6 +507,23 @@ function App() {
         isLoading={isLoadingPaired}
         devices={pairedDevices}
         selectedDeviceIndex={selectedPairedIndex}
+        onBack={handleBackToMain}
+      />
+    );
+  }
+
+  if (currentScreen === "settings") {
+    return (
+      <SettingsView
+        isLoading={isLoadingSettings}
+        isDiscoverable={isDiscoverable}
+        isPairable={isPairable}
+        scanDuration={scanDuration}
+        autoTrustOnPair={autoTrustOnPair}
+        onToggleDiscoverable={handleToggleDiscoverable}
+        onTogglePairable={handleTogglePairable}
+        onChangeScanDuration={setScanDuration}
+        onToggleAutoTrust={() => setAutoTrustOnPair(!autoTrustOnPair)}
         onBack={handleBackToMain}
       />
     );

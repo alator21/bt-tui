@@ -15,16 +15,16 @@ type DeviceDetailViewProps = {
 function getDeviceIcon(device: BluetoothDevice): string {
   if (device.icon) {
     const iconMap: Record<string, string> = {
-      "audio-card": "🎧",
-      "computer": "💻",
-      "phone": "📱",
-      "input-keyboard": "⌨️",
-      "input-mouse": "🖱️",
-      "input-gaming": "🎮",
+      "audio-card": "[♪]",
+      "computer": "[≡]",
+      "phone": "[☎]",
+      "input-keyboard": "[⌨]",
+      "input-mouse": "[⌘]",
+      "input-gaming": "[◊]",
     };
-    return iconMap[device.icon] || "📟";
+    return iconMap[device.icon] || "[•]";
   }
-  return "📟";
+  return "[•]";
 }
 
 export function DeviceDetailView({
@@ -145,7 +145,7 @@ export function DeviceDetailView({
       {!device.paired ? (
         <box flexDirection="column" marginBottom={1} marginTop={1}>
           <text attributes={TextAttributes.DIM} fg="yellow">
-            ℹ️  First time? Press [P] to pair, then [T] to trust, then [C] to connect
+            [i] First time? Press [P] to pair, then [T] to trust, then [C] to connect
           </text>
         </box>
       ) : null}
@@ -153,7 +153,7 @@ export function DeviceDetailView({
       {device.paired && !device.trusted ? (
         <box flexDirection="column" marginBottom={1} marginTop={1}>
           <text attributes={TextAttributes.DIM} fg="yellow">
-            ℹ️  Audio issues? Press [T] to trust device for better profile management
+            [i] Audio issues? Press [T] to trust device for better profile management
           </text>
         </box>
       ) : null}

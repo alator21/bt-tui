@@ -10,16 +10,16 @@ type DeviceListProps = {
 function getDeviceIcon(device: BluetoothDevice): string {
   if (device.icon) {
     const iconMap: Record<string, string> = {
-      "audio-card": "🎧",
-      "computer": "💻",
-      "phone": "📱",
-      "input-keyboard": "⌨️",
-      "input-mouse": "🖱️",
-      "input-gaming": "🎮",
+      "audio-card": "[♪]",
+      "computer": "[≡]",
+      "phone": "[☎]",
+      "input-keyboard": "[⌨]",
+      "input-mouse": "[⌘]",
+      "input-gaming": "[◊]",
     };
-    return iconMap[device.icon] || "📟";
+    return iconMap[device.icon] || "[•]";
   }
-  return "📟";
+  return "[•]";
 }
 
 export function DeviceList({ devices, selectedIndex, showEmpty = true }: DeviceListProps) {

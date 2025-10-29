@@ -17,7 +17,7 @@ export type BluetoothDevice = {
   icon?: string;
 };
 
-export type Screen = "main" | "scan" | "pairedDevices" | "deviceDetail";
+export type Screen = "main" | "scan" | "pairedDevices" | "deviceDetail" | "settings";
 
 // Error types for Bluetooth operations
 export type BluetoothError =

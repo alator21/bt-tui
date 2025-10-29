@@ -129,17 +129,30 @@ export function checkBluetoothStatus(): ResultAsync<BluetoothStatus, BluetoothEr
  */
 export function enableBluetooth(): ResultAsync<void, BluetoothError> {
   return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "power", "on"]),
+    (async () => {
+      // First try bluetoothctl power on
+      const btctlResult = await executeCommand(["bluetoothctl", "power", "on"]);
+      if (btctlResult.isOk()) {
+        return;
+      }
+
+      // If that fails, try rfkill unblock
+      const rfkillResult = await executeCommand(["rfkill", "unblock", "bluetooth"]);
+      if (rfkillResult.isErr()) {
+        throw rfkillResult.error;
+      }
+
+      // After unblocking with rfkill, try bluetoothctl again
+      const retryResult = await executeCommand(["bluetoothctl", "power", "on"]);
+      if (retryResult.isErr()) {
+        throw retryResult.error;
+      }
+    })(),
     (e) => ({
       type: "unknown_error" as const,
       message: String(e),
     })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  ).andThen(() => ok(undefined));
 }
 
 /**
@@ -147,17 +160,24 @@ export function enableBluetooth(): ResultAsync<void, BluetoothError> {
  */
 export function disableBluetooth(): ResultAsync<void, BluetoothError> {
   return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "power", "off"]),
+    (async () => {
+      // First try bluetoothctl power off
+      const btctlResult = await executeCommand(["bluetoothctl", "power", "off"]);
+      if (btctlResult.isOk()) {
+        return;
+      }
+
+      // If that fails, try rfkill block
+      const rfkillResult = await executeCommand(["rfkill", "block", "bluetooth"]);
+      if (rfkillResult.isErr()) {
+        throw rfkillResult.error;
+      }
+    })(),
     (e) => ({
       type: "unknown_error" as const,
       message: String(e),
     })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  ).andThen(() => ok(undefined));
 }
 
 /**
@@ -171,6 +191,74 @@ export function toggleBluetooth(
   } else {
     return enableBluetooth();
   }
+}
+
+/**
+ * Set discoverable mode (make device visible to others)
+ */
+export function setDiscoverable(enabled: boolean): ResultAsync<void, BluetoothError> {
+  return ResultAsync.fromPromise(
+    executeCommand(["bluetoothctl", "discoverable", enabled ? "on" : "off"]),
+    (e) => ({
+      type: "unknown_error" as const,
+      message: String(e),
+    })
+  ).andThen((result) =>
+    result.match(
+      () => ok(undefined),
+      (error) => err(error)
+    )
+  );
+}
+
+/**
+ * Set pairable mode (allow new devices to pair)
+ */
+export function setPairable(enabled: boolean): ResultAsync<void, BluetoothError> {
+  return ResultAsync.fromPromise(
+    executeCommand(["bluetoothctl", "pairable", enabled ? "on" : "off"]),
+    (e) => ({
+      type: "unknown_error" as const,
+      message: String(e),
+    })
+  ).andThen((result) =>
+    result.match(
+      () => ok(undefined),
+      (error) => err(error)
+    )
+  );
+}
+
+/**
+ * Check if adapter is discoverable
+ */
+export function checkDiscoverable(): ResultAsync<boolean, BluetoothError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await executeCommand(["bluetoothctl", "show"]);
+      if (result.isErr()) {
+        throw result.error;
+      }
+      return result.value.includes("Discoverable: yes");
+    })(),
+    (e) => e as BluetoothError
+  );
+}
+
+/**
+ * Check if adapter is pairable
+ */
+export function checkPairable(): ResultAsync<boolean, BluetoothError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await executeCommand(["bluetoothctl", "show"]);
+      if (result.isErr()) {
+        throw result.error;
+      }
+      return result.value.includes("Pairable: yes");
+    })(),
+    (e) => e as BluetoothError
+  );
 }
 
 /**
