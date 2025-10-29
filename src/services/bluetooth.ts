@@ -47,6 +47,40 @@ async function executeCommand(
 }
 
 /**
+ * Helper: Execute a simple bluetoothctl command that returns void
+ */
+function executeBluetoothCommand(...args: string[]): ResultAsync<void, BluetoothError> {
+  return ResultAsync.fromPromise(
+    executeCommand(["bluetoothctl", ...args]),
+    (e) => ({
+      type: "unknown_error" as const,
+      message: String(e),
+    })
+  ).andThen((result) =>
+    result.match(
+      () => ok(undefined),
+      (error) => err(error)
+    )
+  );
+}
+
+/**
+ * Helper: Check a boolean property from bluetoothctl show
+ */
+function checkBluetoothProperty(property: string): ResultAsync<boolean, BluetoothError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await executeCommand(["bluetoothctl", "show"]);
+      if (result.isErr()) {
+        throw result.error;
+      }
+      return result.value.includes(`${property}: yes`);
+    })(),
+    (e) => e as BluetoothError
+  );
+}
+
+/**
  * Parse bluetoothctl show output to determine status
  */
 function parseBluetoothStatus(output: string): Result<BluetoothStatus, BluetoothError> {
@@ -98,10 +132,7 @@ export function checkBluetoothStatus(): ResultAsync<BluetoothStatus, BluetoothEr
       }
       return parseResult.value;
     })(),
-    (e): BluetoothError => {
-      const error = e as BluetoothError;
-      return error;
-    }
+    (e): BluetoothError => e as BluetoothError
   ).orElse((error) => {
     // If bluetoothctl fails, try rfkill as fallback
     if (error.type === "command_not_found" || error.type === "command_failed") {
@@ -186,79 +217,35 @@ export function disableBluetooth(): ResultAsync<void, BluetoothError> {
 export function toggleBluetooth(
   currentStatus: BluetoothStatus
 ): ResultAsync<void, BluetoothError> {
-  if (currentStatus === "enabled") {
-    return disableBluetooth();
-  } else {
-    return enableBluetooth();
-  }
+  return currentStatus === "enabled" ? disableBluetooth() : enableBluetooth();
 }
 
 /**
  * Set discoverable mode (make device visible to others)
  */
 export function setDiscoverable(enabled: boolean): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "discoverable", enabled ? "on" : "off"]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("discoverable", enabled ? "on" : "off");
 }
 
 /**
  * Set pairable mode (allow new devices to pair)
  */
 export function setPairable(enabled: boolean): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "pairable", enabled ? "on" : "off"]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("pairable", enabled ? "on" : "off");
 }
 
 /**
  * Check if adapter is discoverable
  */
 export function checkDiscoverable(): ResultAsync<boolean, BluetoothError> {
-  return ResultAsync.fromPromise(
-    (async () => {
-      const result = await executeCommand(["bluetoothctl", "show"]);
-      if (result.isErr()) {
-        throw result.error;
-      }
-      return result.value.includes("Discoverable: yes");
-    })(),
-    (e) => e as BluetoothError
-  );
+  return checkBluetoothProperty("Discoverable");
 }
 
 /**
  * Check if adapter is pairable
  */
 export function checkPairable(): ResultAsync<boolean, BluetoothError> {
-  return ResultAsync.fromPromise(
-    (async () => {
-      const result = await executeCommand(["bluetoothctl", "show"]);
-      if (result.isErr()) {
-        throw result.error;
-      }
-      return result.value.includes("Pairable: yes");
-    })(),
-    (e) => e as BluetoothError
-  );
+  return checkBluetoothProperty("Pairable");
 }
 
 /**
@@ -309,44 +296,61 @@ function parseDeviceInfo(address: string, output: string): BluetoothDevice {
  */
 export async function getDeviceInfo(address: string): Promise<Result<BluetoothDevice, BluetoothError>> {
   const result = await executeCommand(["bluetoothctl", "info", address]);
-
   return result.map((output) => parseDeviceInfo(address, output));
+}
+
+/**
+ * Helper: Get a list of devices from bluetoothctl
+ */
+function getDeviceList(filter?: "Paired"): ResultAsync<BluetoothDevice[], BluetoothError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const args = filter ? ["bluetoothctl", "devices", filter] : ["bluetoothctl", "devices"];
+      const devicesResult = await executeCommand(args);
+
+      if (devicesResult.isErr()) {
+        throw devicesResult.error;
+      }
+
+      const output = devicesResult.value;
+      const lines = output.trim().split("\n").filter((line) => line.trim());
+
+      // Parse device addresses from "Device XX:XX:XX:XX:XX:XX DeviceName" format
+      const deviceAddresses: string[] = [];
+      for (const line of lines) {
+        const match = line.match(/Device\s+([0-9A-F:]{17})/i);
+        if (match && match[1]) {
+          deviceAddresses.push(match[1]);
+        }
+      }
+
+      // Get detailed info for each device
+      const devices: BluetoothDevice[] = [];
+      for (const address of deviceAddresses) {
+        const deviceInfo = await getDeviceInfo(address);
+        if (deviceInfo.isOk()) {
+          devices.push(deviceInfo.value);
+        }
+      }
+
+      return devices;
+    })(),
+    (e) => e as BluetoothError
+  );
 }
 
 /**
  * Start Bluetooth scanning
  */
 export function startScan(): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "scan", "on"]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("scan", "on");
 }
 
 /**
  * Stop Bluetooth scanning
  */
 export function stopScan(): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "scan", "off"]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("scan", "off");
 }
 
 /**
@@ -374,78 +378,14 @@ function parseDeviceFromScanLine(line: string): { address: string; name: string 
  * Get list of paired devices
  */
 export function getPairedDevices(): ResultAsync<BluetoothDevice[], BluetoothError> {
-  return ResultAsync.fromPromise(
-    (async () => {
-      // Get list of paired devices using bluetoothctl
-      const devicesResult = await executeCommand(["bluetoothctl", "devices", "Paired"]);
-      if (devicesResult.isErr()) {
-        throw devicesResult.error;
-      }
-
-      const output = devicesResult.value;
-      const lines = output.trim().split("\n").filter((line) => line.trim());
-
-      // Parse device addresses from "Device XX:XX:XX:XX:XX:XX DeviceName" format
-      const deviceAddresses: string[] = [];
-      for (const line of lines) {
-        const match = line.match(/Device\s+([0-9A-F:]{17})/i);
-        if (match && match[1]) {
-          deviceAddresses.push(match[1]);
-        }
-      }
-
-      // Get detailed info for each device
-      const devices: BluetoothDevice[] = [];
-      for (const address of deviceAddresses) {
-        const deviceInfo = await getDeviceInfo(address);
-        if (deviceInfo.isOk()) {
-          devices.push(deviceInfo.value);
-        }
-      }
-
-      return devices;
-    })(),
-    (e): BluetoothError => e as BluetoothError
-  );
+  return getDeviceList("Paired");
 }
 
 /**
  * Get list of discovered devices by parsing scan output
  */
 export function getDiscoveredDevices(): ResultAsync<BluetoothDevice[], BluetoothError> {
-  return ResultAsync.fromPromise(
-    (async () => {
-      // Get list of devices - this includes all known devices
-      const devicesResult = await executeCommand(["bluetoothctl", "devices"]);
-      if (devicesResult.isErr()) {
-        throw devicesResult.error;
-      }
-
-      const output = devicesResult.value;
-      const lines = output.trim().split("\n").filter((line) => line.trim());
-
-      // Parse device addresses from "Device XX:XX:XX:XX:XX:XX DeviceName" format
-      const deviceAddresses: string[] = [];
-      for (const line of lines) {
-        const match = line.match(/Device\s+([0-9A-F:]{17})/i);
-        if (match && match[1]) {
-          deviceAddresses.push(match[1]);
-        }
-      }
-
-      // Get detailed info for each device
-      const devices: BluetoothDevice[] = [];
-      for (const address of deviceAddresses) {
-        const deviceInfo = await getDeviceInfo(address);
-        if (deviceInfo.isOk()) {
-          devices.push(deviceInfo.value);
-        }
-      }
-
-      return devices;
-    })(),
-    (e): BluetoothError => e as BluetoothError
-  );
+  return getDeviceList();
 }
 
 /**
@@ -589,88 +529,33 @@ export function scanForDevices(
  * Connect to a Bluetooth device
  */
 export function connectToDevice(address: string): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "connect", address]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("connect", address);
 }
 
 /**
  * Disconnect from a Bluetooth device
  */
 export function disconnectFromDevice(address: string): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "disconnect", address]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("disconnect", address);
 }
 
 /**
  * Pair with a Bluetooth device
  */
 export function pairDevice(address: string): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "pair", address]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("pair", address);
 }
 
 /**
  * Trust a Bluetooth device
  */
 export function trustDevice(address: string): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "trust", address]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("trust", address);
 }
 
 /**
  * Remove (unpair) a Bluetooth device
  */
 export function removeDevice(address: string): ResultAsync<void, BluetoothError> {
-  return ResultAsync.fromPromise(
-    executeCommand(["bluetoothctl", "remove", address]),
-    (e) => ({
-      type: "unknown_error" as const,
-      message: String(e),
-    })
-  ).andThen((result) =>
-    result.match(
-      () => ok(undefined),
-      (error) => err(error)
-    )
-  );
+  return executeBluetoothCommand("remove", address);
 }
