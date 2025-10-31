@@ -55,6 +55,9 @@ function App() {
   const [isPairable, setIsPairable] = useState(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
+  // Connected device state
+  const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
+
   // Check Bluetooth status on mount
   useEffect(() => {
     const checkStatus = async () => {
@@ -75,6 +78,30 @@ function App() {
 
     checkStatus();
   }, []);
+
+  // Check for connected devices when on main screen
+  useEffect(() => {
+    const checkConnectedDevices = async () => {
+      if (currentScreen !== "main" || bluetoothStatus !== "enabled") {
+        return;
+      }
+
+      const result = await getPairedDevices();
+
+      result.match(
+        (devices) => {
+          const connected = devices.find(device => device.connected);
+          setConnectedDevice(connected || null);
+        },
+        () => {
+          // Silently fail - don't show error for background check
+          setConnectedDevice(null);
+        }
+      );
+    };
+
+    checkConnectedDevices();
+  }, [currentScreen, bluetoothStatus]);
 
   const handlePowerToggle = async () => {
     setStatus("ready");
@@ -547,7 +574,7 @@ function App() {
 
   return (
     <box flexDirection="column" flexGrow={1} padding={1}>
-      <Header bluetoothStatus={bluetoothStatus} />
+      <Header bluetoothStatus={bluetoothStatus} connectedDevice={connectedDevice} />
       <Menu options={menuOptions} selectedIndex={selectedIndex} />
       <Footer status={status} />
       {errorMessage && (

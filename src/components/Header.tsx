@@ -1,8 +1,9 @@
 import { TextAttributes } from "@opentui/core";
-import type { BluetoothStatus } from "../types";
+import type { BluetoothStatus, BluetoothDevice } from "../types";
 
 type HeaderProps = {
   bluetoothStatus: BluetoothStatus;
+  connectedDevice?: BluetoothDevice | null;
 };
 
 const getStatusColor = (status: BluetoothStatus): string => {
@@ -27,7 +28,7 @@ const getStatusIcon = (status: BluetoothStatus): string => {
   }
 };
 
-export function Header({ bluetoothStatus }: HeaderProps) {
+export function Header({ bluetoothStatus, connectedDevice }: HeaderProps) {
   const statusColor = getStatusColor(bluetoothStatus);
   const statusIcon = getStatusIcon(bluetoothStatus);
 
@@ -48,6 +49,14 @@ export function Header({ bluetoothStatus }: HeaderProps) {
           {statusIcon} {bluetoothStatus.toUpperCase()}
         </text>
       </box>
+      {connectedDevice && (
+        <box marginTop={0}>
+          <text attributes={TextAttributes.DIM}>Connected: </text>
+          <text attributes={TextAttributes.BOLD} fg="green">
+            ♪ {connectedDevice.name || "Unknown Device"}
+          </text>
+        </box>
+      )}
     </box>
   );
 }
